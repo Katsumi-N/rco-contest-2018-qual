@@ -88,6 +88,7 @@ impl MazeState {
         }
     }
 
+    // ゲームの終了判定
     fn is_done(&self) -> bool {
         for trap in &self.traps {
             if self.character.y == trap[0] as isize && self.character.x == trap[1] as isize {
@@ -96,7 +97,40 @@ impl MazeState {
         }
         false
     }
+
+    // 指定したactionでゲームを1ターン進める
+    fn advance(&mut self, action: usize) {
+        self.character.x += DX[action];
+        self.character.y += DY[action];
+        let point = &mut self.points[self.character.y as usize][self.character.x as usize];
+        if *point > 0 {
+            self.game_score += *point;
+            *point = 0;
+        }
+        self.turn += 1;
+    }
+
+    // 現在の状況でプレイヤーが可能な行動を全て取得する
+    fn legal_actions(&self) -> Vec<usize> {
+        let mut actions = Vec::new();
+        for action in 0..4 {
+            let ty = self.character.y + DY[action];
+            let tx = self.character.x + DX[action];
+            if self.points[ty as usize][tx as usize] == -1 {
+                continue;
+            }
+            if ty >= 0 && ty < H as isize && tx >= 0 && tx < W as isize {
+                actions.push(action);
+            }
+        }
+        actions
+    }
+
+    fn evaluate_score(&mut self) {
+        self.evaluated_score = self.game_score;
+    }
 }
+
 
 
 fn random_command(t: usize) -> String {
