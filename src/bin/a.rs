@@ -8,9 +8,11 @@ const DX: [isize; 4] = [1, -1, 0, 0];
 const DY: [isize; 4] = [0, 0, 1, -1];
 const H: usize = 50;
 const W: usize = 50;
+const K: usize = 8;
+const T: usize = 2500;
 
 // 座標を保持する
-#[derive(Clone,Copy)]
+#[derive(Debug,Clone,Copy)]
 struct Coord {
     y: isize,
     x: isize,
@@ -21,117 +23,173 @@ impl Coord {
         Self { y, x }
     }
 }
-struct MazeState {
-    points: Vec<Vec<isize>>,
-    turn: usize,             // 現在のターン
+
+#[derive(Debug,Clone)]
+struct Board {
+    id: usize,
+    cell: Vec<Vec<char>>,
     character: Coord,
-    game_score: usize, // ゲーム上で実際に得たスコア
-    evaluated_score: usize,
-    first_action: isize,
-    traps: Vec<Vec<usize>>,
 }
 
-impl Ord for MazeState {
+#[derive(Debug,Clone)]
+struct State {
+    boards: Vec<Board>,
+    turn: usize,             // 現在のターン
+    coin: usize, // ゲーム上で実際に得たスコア
+    evaluated_score: usize,
+    actions: Vec<usize>,
+}
+
+impl Ord for State {
     fn cmp(&self, other: &Self) -> Ordering {
         self.evaluated_score.cmp(&other.evaluated_score)
     }
 }
-
-impl PartialOrd for MazeState {
+impl PartialOrd for State {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
-
-impl Eq for MazeState {}
-
-impl PartialEq for MazeState {
+impl Eq for State {}
+impl PartialEq for State {
     fn eq(&self, other: &Self) -> bool {
         self.evaluated_score == other.evaluated_score
     }
 }
 
-impl MazeState {
-    fn new(m: Vec<String>) -> Self {
-        let map_chars: Vec<Vec<char>> = m.into_iter().map(|x| x.chars().collect()).collect();
-        let mut points: Vec<Vec<isize>> = vec![vec![0; W]; H];
-        let mut character = Coord::new(0, 0);
-        let mut traps: Vec<Vec<usize>> = vec![];
-        for y in 0..H {
-            for x in 0..W {
-                match map_chars[y][x] {
-                    '#' => {
-                        points[y][x] = -1;
-                    },
-                    'o' => {
-                        points[y][x] = 1;
-                    },
-                    'x' => {
-                        traps.push(vec![y, x]);
-                    },
-                    '@' => {
-                        character.x = x as isize;
-                        character.y = y as isize;
-                    },
-                    _ => (),
+impl State {
+    fn new(m: Vec<Vec<String>>) -> Self {
+        let mut boards: Vec<Board> = vec![];
+        for i in 0..K {
+            let mut cell: Vec<Vec<char>> = m[i].into_iter().map(|x| x.chars().collect()).collect();
+            let mut character = Coord::new(0, 0);
+            for y in 0..H {
+                for x in 0..W {
+                    match cell[y][x] {
+                        '@' => {
+                            cell[y][x] = '.';
+                            character.y = y as isize;
+                            character.x = x as isize;
+                        },
+                        _ => (),
+                    }
                 }
             }
+            let board: Board = Board { id: i, cell: cell, character: character };
+            boards.push(board);
         }
+
         Self {
-            points,
+            boards,
             turn: 0,
-            character,
-            game_score: 0,
+            coin: 0,
             evaluated_score: 0,
-            first_action: -1,
-            traps,
+            actions: vec![],
         }
     }
 
     // ゲームの終了判定
     fn is_done(&self) -> bool {
-        for trap in &self.traps {
-            if self.character.y == trap[0] as isize && self.character.x == trap[1] as isize {
-                return true
-            }
-        }
-        false
+        self.turn == T
     }
 
-    // 指定したactionでゲームを1ターン進める
-    fn advance(&mut self, action: usize) {
-        self.character.x += DX[action];
-        self.character.y += DY[action];
-        let point = &mut self.points[self.character.y as usize][self.character.x as usize];
-        if *point > 0 {
-            self.game_score += *point;
-            *point = 0;
-        }
-        self.turn += 1;
+    // 盤面評価はコインの数
+    fn evaluate_score(&mut self) {
+        self.evaluated_score = self.coin;
     }
 
     // 現在の状況でプレイヤーが可能な行動を全て取得する
     fn legal_actions(&self) -> Vec<usize> {
-        let mut actions = Vec::new();
+        let mut actions = vec![];
+
         for action in 0..4 {
-            let ty = self.character.y + DY[action];
-            let tx = self.character.x + DX[action];
-            if self.points[ty as usize][tx as usize] == -1 {
-                continue;
-            }
-            if ty >= 0 && ty < H as isize && tx >= 0 && tx < W as isize {
-                actions.push(action);
+            let mut can_action = true;
+
+            for board in &self.boards {
+                let character = &board.character;
+                let ty = character.y + DY[action];
+                let tx = character.x + DX[action];
+                if ty >= 0 && ty < H as isize && tx >= 0 && tx < W as isize && board.cell[ty as usize][tx as usize] == 'x' {
+                    break;
+                }
+                if ty >= 0 && ty < H as isize && tx >= 0 && tx < W as isize {
+                
+                    actions.push(action);
+                }
             }
         }
+
         actions
     }
 
-    fn evaluate_score(&mut self) {
-        self.evaluated_score = self.game_score;
+    // 指定したactionでゲームを1ターン進める
+    fn advance(&mut self, action: usize) {
+        for board in &mut self.boards { // all_boardsの名前に合わせました
+            let character = &mut board.character;
+            let ty = character.y + DY[action as usize];
+            let tx = character.x + DX[action as usize];
+            let cell = &mut board.cell[ty as usize][tx as usize];
+
+            if *cell == '#' {
+                continue;
+            } else {
+                if *cell == 'o' {
+                    self.coin += 1;
+                    *cell = '.';
+                }
+                character.y = ty;
+                character.x = tx;
+            }
+        }
+        self.turn += 1;
     }
+    
 }
 
+// fn chokudai_search_action(states: Vec<MazeState>, beam_width: usize, beam_depth: usize, beam_num: usize) -> usize {
+//     let mut beam = vec![std::collections::BinaryHeap::new(); beam_depth + 1];
+//     beam[0].push(states.clone());
 
+//     for _ in 0..beam_num {
+//         for t in 0..beam_depth {
+//             let mut now_beam = beam[t].clone();
+//             let next_beam = &mut beam[t + 1];
+
+//             for _ in 0..beam_width {
+//                 if now_beam.is_empty() {
+//                     break;
+//                 }
+
+//                 let now_state = now_beam.peek().unwrap().clone();
+                
+//                 // 全てのstateが終了してたらsearch終了
+//                 if now_state.iter().all(|state| state.is_done()) {
+//                     break;
+//                 }
+
+//                 now_beam.pop();
+//                 for i in 0..4 {
+//                     let mut next_state: Vec<MazeState> = now_state.iter().map(|state| state.clone()).collect();
+//                     // next_state.iter_mut().for_each(|state| state.advance(i));
+//                     next_state.iter_mut().for_each(|state| state.advance(i));
+//                     next_state.iter_mut().for_each(|state| state.evaluate_score());
+                    
+//                     if t == 0 {
+//                         next_state.iter_mut().for_each(|state| state.first_action = i as isize);
+//                     }
+//                     next_beam.push(next_state);
+//                 }
+//             }
+//         }
+//     }
+//     for t in (0..beam_depth).rev() {
+//         let now_beam = &beam[t];
+//         if !now_beam.is_empty() {
+//             return now_beam.peek().unwrap()[0].first_action as usize;
+//         }
+//     }
+//     0
+// }
 
 fn random_command(t: usize) -> String {
     let mut rng = rand::thread_rng();
