@@ -2,7 +2,7 @@ use proconio::{fastout, input};
 use rand::Rng;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
-
+use std::{time::{Instant}};
 const COMMANDS: [&str; 4] = ["U", "D", "R", "L"];
 const DX: [isize; 4] = [1, -1, 0, 0];
 const DY: [isize; 4] = [0, 0, 1, -1];
@@ -61,7 +61,7 @@ impl State {
     fn new(m: Vec<Vec<String>>) -> Self {
         let mut boards: Vec<Board> = vec![];
         for i in 0..K {
-            let mut cell: Vec<Vec<char>> = m[i].into_iter().map(|x| x.chars().collect()).collect();
+            let mut cell: Vec<Vec<char>> = m[i].iter().map(|x| x.chars().collect()).collect();
             let mut character = Coord::new(0, 0);
             for y in 0..H {
                 for x in 0..W {
@@ -110,12 +110,12 @@ impl State {
                 let ty = character.y + DY[action];
                 let tx = character.x + DX[action];
                 if ty >= 0 && ty < H as isize && tx >= 0 && tx < W as isize && board.cell[ty as usize][tx as usize] == 'x' {
+                    can_action = false;
                     break;
                 }
-                if ty >= 0 && ty < H as isize && tx >= 0 && tx < W as isize {
-                
-                    actions.push(action);
-                }
+            }
+            if can_action {
+                actions.push(action);
             }
         }
 
@@ -146,58 +146,40 @@ impl State {
     
 }
 
-// fn chokudai_search_action(states: Vec<MazeState>, beam_width: usize, beam_depth: usize, beam_num: usize) -> usize {
-//     let mut beam = vec![std::collections::BinaryHeap::new(); beam_depth + 1];
-//     beam[0].push(states.clone());
+fn chokudai_search_action(state: &State, beam_width: usize, beam_depth: usize) -> Vec<usize> {
+    let mut beam = vec![BinaryHeap::new(); beam_depth + 1];
+    beam[0].push(state.clone());
 
-//     for _ in 0..beam_num {
-//         for t in 0..beam_depth {
-//             let mut now_beam = beam[t].clone();
-//             let next_beam = &mut beam[t + 1];
+    let ti = Instant::now();
+    while ti.elapsed().as_millis() < 3_000 {
+        for t in 0..beam_depth {
+            let mut now_beam = beam[t].clone();
+            let next_beam = &mut beam[t + 1];
 
-//             for _ in 0..beam_width {
-//                 if now_beam.is_empty() {
-//                     break;
-//                 }
+            for _ in 0..beam_width {
+                if now_beam.is_empty() {
+                    break;
+                }
 
-//                 let now_state = now_beam.peek().unwrap().clone();
-                
-//                 // 全てのstateが終了してたらsearch終了
-//                 if now_state.iter().all(|state| state.is_done()) {
-//                     break;
-//                 }
+                let now_state = now_beam.peek().unwrap().clone();
+                if now_state.is_done() {
+                    break;
+                }
 
-//                 now_beam.pop();
-//                 for i in 0..4 {
-//                     let mut next_state: Vec<MazeState> = now_state.iter().map(|state| state.clone()).collect();
-//                     // next_state.iter_mut().for_each(|state| state.advance(i));
-//                     next_state.iter_mut().for_each(|state| state.advance(i));
-//                     next_state.iter_mut().for_each(|state| state.evaluate_score());
-                    
-//                     if t == 0 {
-//                         next_state.iter_mut().for_each(|state| state.first_action = i as isize);
-//                     }
-//                     next_beam.push(next_state);
-//                 }
-//             }
-//         }
-//     }
-//     for t in (0..beam_depth).rev() {
-//         let now_beam = &beam[t];
-//         if !now_beam.is_empty() {
-//             return now_beam.peek().unwrap()[0].first_action as usize;
-//         }
-//     }
-//     0
-// }
-
-fn random_command(t: usize) -> String {
-    let mut rng = rand::thread_rng();
-    let mut c = String::from("");
-    for _ in 0..t {
-        c += COMMANDS[rng.gen_range(0, 4)];
+                now_beam.pop();
+                let legal_actions = now_state.legal_actions();
+                for action in legal_actions {
+                    let mut next_state = now_state.clone();
+                    next_state.advance(action);
+                    next_state.evaluate_score();
+                    next_state.actions.push(action);
+                    next_beam.push(next_state);
+                }
+            }
+        }
     }
-    c
+    
+    beam[beam_depth - 1].peek().unwrap().clone().actions
 }
 
 fn count_trap(vec_s: &Vec<String>) -> usize {
@@ -224,5 +206,10 @@ fn main() {
     traps.sort_by(|a, b| a[1].cmp(&b[1]));
     let m: Vec<_> = traps.iter().take(k).map(|x| x[0]).collect();
     println!("{}", m.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(" "));
-    println!("{}", random_command(t));
+
+    let state = State::new(maps);
+    let actions = chokudai_search_action(&state, 1, 2500);
+
+    let ans = actions.iter().map(|a| COMMANDS[*a]).collect::<Vec<_>>().join("");
+    println!("{}", ans);
 }
